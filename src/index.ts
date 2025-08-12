@@ -11,6 +11,11 @@ let time = 0;
 
 let cursors = new Set<Node>();
 
+export function createMemo<A>(ret: (a: A) => void): Accessor<A> {
+    
+    throw new Error("TODO");
+}
+
 export function createSignal<A>(a: A): Signal<A> {
     let value = a;
     let node: Node = {
