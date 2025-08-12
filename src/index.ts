@@ -11,8 +11,13 @@ let time = 0;
 
 let cursors = new Set<Node>();
 
-export function createMemo<A>(ret: (a: A) => void): Accessor<A> {
-    
+export function createMemo<A>(k: (ret: (a: A) => void) => void): Accessor<A> {
+    let value: A | undefined = undefined;
+    let hasValue = false;
+    let node: Node = {
+        age: time++,
+        nexts: [],
+    };
     throw new Error("TODO");
 }
 
