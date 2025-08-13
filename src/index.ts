@@ -58,8 +58,8 @@ export function createMemo<A>(k: (ret: (a: A) => void) => void): Accessor<A> {
     });
     let result: Accessor<A> = (ret) => {
         if (!hasValue) {
-            cursors.add(node);
             nexts.push(() => result(ret));
+            cursors.add(node);
         } else {
             ret(value as A);
         }
@@ -86,6 +86,7 @@ export function createSignal<A>(a: A): Signal<A> {
     return batch(() => [
         (ret) => {
             nexts.push(() => ret(value));
+            cursors.add(node);
         },
         (x) => {
             batch(() => {
