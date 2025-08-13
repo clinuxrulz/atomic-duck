@@ -46,9 +46,18 @@ export function createMemo<A>(k: (ret: (a: A) => void) => void): Accessor<A> {
 export function createSignal<A>(a: A): Signal<A> {
     let value = a;
     let nexts: (() => void)[] = [];
+    let nexts2: (() => void)[] = [];
     let node: Node = {
         age: time++,
-        update: () => {},
+        update: () => {
+            let tmp = nexts;
+            nexts = nexts2;
+            nexts2 = tmp;
+            for (let next of nexts2) {
+                next();
+            }
+            nexts2.splice(0, nexts2.length);
+        },
     };
     cursors.add(node);
     return [
