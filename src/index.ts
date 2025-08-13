@@ -3,11 +3,9 @@ export type Setter<A> = (x: A) => void;
 export type Signal<A> = [ Accessor<A>, Setter<A>, ];
 
 interface Node {
-    age: number,
     update: () => void,
 };
 
-let time = 0;
 let cursors = new Set<Node>();
 let transactionDepth = 0;
 
@@ -37,7 +35,6 @@ export function createMemo<A>(k: (ret: (a: A) => void) => void): Accessor<A> {
     let value: A | undefined = undefined;
     let hasValue = false;
     let node: Node = {
-        age: time++,
         update: () => {},
     };
     throw new Error("TODO");
@@ -48,7 +45,6 @@ export function createSignal<A>(a: A): Signal<A> {
     let nexts: (() => void)[] = [];
     let nexts2: (() => void)[] = [];
     let node: Node = {
-        age: time++,
         update: () => {
             let tmp = nexts;
             nexts = nexts2;
