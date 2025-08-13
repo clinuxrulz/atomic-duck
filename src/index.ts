@@ -83,13 +83,15 @@ export function createSignal<A>(a: A): Signal<A> {
         },
     };
     cursors.add(node);
-    return [
+    return batch(() => [
         (ret) => {
             nexts.push(() => ret(value));
         },
         (x) => {
-            value = x;
-            cursors.add(node);
+            batch(() => {
+                value = x;
+                cursors.add(node);
+            });
         },
-    ];
+    ]);
 }
