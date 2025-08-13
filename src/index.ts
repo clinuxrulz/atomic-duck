@@ -31,6 +31,11 @@ export function batch<A>(k: () => A): A {
     return result;
 }
 
+// lazy impl for now
+export function createEffect(k: (() => void)) {
+    createMemo((_ret) => k());
+}
+
 export function createMemo<A>(k: (ret: (a: A) => void) => void): Accessor<A> {
     let value: A | undefined = undefined;
     let hasValue = false;
