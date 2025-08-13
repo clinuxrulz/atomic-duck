@@ -87,10 +87,7 @@ export function createSignal<A>(a: A): Signal<A> {
     cursors.add(node);
     return batch(() => [
         (ret) => {
-            batch(() => {
-                nexts.push(() => ret(value));
-                cursors.add(node);
-            });
+            nexts.push(() => ret(value));
         },
         (x) => {
             batch(() => {
