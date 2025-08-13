@@ -34,10 +34,32 @@ export function batch<A>(k: () => A): A {
 export function createMemo<A>(k: (ret: (a: A) => void) => void): Accessor<A> {
     let value: A | undefined = undefined;
     let hasValue = false;
+    let nexts: (() => void)[] = [];
+    let nexts2: (() => void)[] = [];
     let node: Node = {
-        update: () => {},
+        update: () => {
+            let tmp = nexts;
+            nexts = nexts2;
+            nexts2 = tmp;
+            for (let next of nexts2) {
+                next();
+            }
+            nexts2.splice(0, nexts2.length);
+        },
     };
-    throw new Error("TODO");
+    k((a) => {
+        value = a;
+        hasValue = true;
+    });
+    let result: Accessor<A> = (ret) => {
+        if (!hasValue) {
+            cursors.add(node);
+            nexts.push(() => result(ret));
+        } else {
+            ret(value as A);
+        }
+    };
+    return result;
 }
 
 export function createSignal<A>(a: A): Signal<A> {
