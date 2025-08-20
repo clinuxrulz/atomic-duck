@@ -80,16 +80,6 @@ function backwardsFlush() {
             } else if (node.state == "Dirty") {
                 if (node.update != undefined) {
                     let changed = node.update();
-                    // resolve any dynamic/new sources that are not clean
-                    if (node.sources != undefined) {
-                      for (let source of node.sources) {
-                          if (source.state == "Dirty" || source.state == "Stale") {
-                            resolveNode(source);
-                            break;
-                          }
-                      }
-                    }
-                    //
                     if (changed) {
                       if (node.sinks != undefined) {
                         for (let sink of node.sinks) {
