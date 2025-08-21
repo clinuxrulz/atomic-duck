@@ -1,3 +1,9 @@
 // jsx-runtime.ts
-export { _createElement as createElement, _createTextNode as createTextNode, _createFragment as createFragment, _insert as insert } from "./index";
-export { JSX } from "./jsx";
+export { createElement as createElement, createTextNode as createTextNode, createFragment as createFragment, insert as insert } from "./index";
+export type { JSX } from "./jsx";
+export {
+  createElement as jsx,
+  createElement as jsxs,
+  createElement as jsxDEV,
+  createFragment as Fragment,
+} from './index';

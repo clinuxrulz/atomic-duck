@@ -420,7 +420,7 @@ export function createSelector<A>(selection: Accessor<A | undefined>): (key: A) 
 }
 
 // We must export these so the babel plugin can find them
-export const _createElement = (tag: string, props: any, ...children: any[]) => {
+export const createElement = (tag: string, props: any, ...children: any[]) => {
   const el = document.createElement(tag) as HTMLElement;
 
   for (const propName in props) {
@@ -447,59 +447,72 @@ export const _createElement = (tag: string, props: any, ...children: any[]) => {
   }
 
   // Handle children, including text and other elements
-  _insert(el, children);
+  insert(el, children);
 
   return el;
 };
 
 // Creates a reactive text node.
-export const _createTextNode = (text: string | number) => {
+export const createTextNode = (text: string | number) => {
   const node = document.createTextNode('');
-  _insert(node, text);
+  insert(node, text);
   return node;
 };
 
-export const _insert = (
+// A weak map to store the comment markers for each effect, allowing for cleanup
+const markers = new WeakMap<Node, Node>();
+
+export const insert = (
   parent: Node,
   accessor: any,
   anchor: Node | null = null
 ) => {
-  // Normalize the input into an array
-  const children = Array.isArray(accessor) ? accessor : [accessor];
+  // Use a comment node as a marker for the start of the inserted nodes
+  // This allows us to find and clean up old nodes later without affecting others
+  let marker = markers.get(parent);
+  if (!marker) {
+    marker = document.createComment('');
+    markers.set(parent, marker);
+    parent.appendChild(marker);
+  }
+
+  // Use a start anchor for cleanup
+  const startAnchor = marker.nextSibling;
 
   createEffect(() => {
-    // We use untrack to ensure that changes to the value inside a `_insert` call
-    // don't cause the `createEffect` to re-run, but that the `createEffect`
-    // only re-runs when the dependencies accessed *inside* the accessor change.
-    const resolvedChildren = children.map(child => {
-      // If the child is a function, it's a dynamic value (a signal)
-      if (typeof child === 'function') {
-        return untrack(child);
+    // untrack() to prevent the effect from re-running based on signal values
+    // within the accessor, ensuring it only reacts to the signal itself.
+    let resolvedNodes = untrack(accessor);
+
+    // Normalize the value into an array of nodes
+    if (!Array.isArray(resolvedNodes)) {
+      resolvedNodes = [resolvedNodes];
+    }
+    const nodesToInsert = (resolvedNodes as any[]).map(child => {
+      if (child instanceof Node) {
+        return child;
       }
-      return child;
+      return document.createTextNode(child.toString());
     });
 
-    // Clear existing children from the parent
-    if (parent.nodeType === Node.TEXT_NODE) {
-      // For text nodes, update the content
-      parent.nodeValue = resolvedChildren.join('');
-    } else {
-      // For element nodes, clear existing children and append new ones
-      while (parent.firstChild) {
-        parent.removeChild(parent.firstChild);
-      }
-      resolvedChildren.forEach(child => {
-        if (child instanceof Node) {
-          parent.appendChild(child);
-        } else if (typeof child !== 'undefined' && child !== null) {
-          parent.appendChild(document.createTextNode(child.toString()));
-        }
-      });
+    // Cleanup: Remove old nodes from the last render
+    let currentNode = startAnchor;
+    while (currentNode && currentNode !== anchor) {
+      const nextNode = currentNode.nextSibling;
+      parent.removeChild(currentNode);
+      currentNode = nextNode;
     }
+
+    // Insert new nodes before the specified anchor, or at the end if no anchor is provided.
+    // The marker is used as the insertion point if no anchor is explicitly given.
+    const insertionPoint = anchor || marker;
+    nodesToInsert.forEach(node => {
+      parent.insertBefore(node, insertionPoint);
+    });
   });
 };
 
-export const _createFragment = (children: any[]) => {
+export const createFragment = (children: any[]) => {
   const fragment = document.createDocumentFragment();
   children.forEach(child => {
     if (child instanceof Node) {
@@ -556,4 +569,35 @@ export function template(html: string, isSVG: boolean = false): () => Node {
 
   // Return a function that, when called, returns a deep clone of the cached node.
   return () => cachedNode!.cloneNode(true);
+}
+
+// Define a map to hold the delegated event listeners
+const delegatedEvents = new Set();
+
+// The delegateEvents function that the compiler expects
+export function delegateEvents(events) {
+  for (const name of events) {
+    if (!delegatedEvents.has(name)) {
+      document.addEventListener(name, eventHandler);
+      delegatedEvents.add(name);
+    }
+  }
+}
+
+// The generic event handler that will be called for all delegated events
+function eventHandler(e) {
+  const key = `$$${e.type}`;
+  let node = (e.composedPath && e.composedPath()[0]) || e.target;
+
+  // Find the closest ancestor with the event handler attached
+  while (node) {
+    const handler = node[key];
+    if (handler && !node.disabled) {
+      handler(e);
+      // Stop bubbling if the event is a custom event
+      if (e.type.startsWith('on')) e.stopPropagation();
+      return;
+    }
+    node = node.parentNode;
+  }
 }

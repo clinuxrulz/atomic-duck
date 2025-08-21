@@ -6,8 +6,8 @@
       "delegateEvents": true,
       "wrapConditionals": true,
       "jsx": {
-        "factory": "_createElement",
-        "factoryFragment": "_createFragment"
+        "factory": "createElement",
+        "factoryFragment": "createFragment"
       }
     }]
   ]

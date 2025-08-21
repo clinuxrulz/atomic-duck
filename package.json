@@ -1,8 +1,25 @@
 {
   "name": "atomic-duck",
-  "private": true,
+  "private": false,
   "version": "0.0.0",
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/atomic-duck.d.ts",
+      "import": "./dist/atomic-duck.es.js",
+      "require": "./dist/atomic-duck.umd.js"
+    },
+    "./jsx-runtime": {
+      "types": "./dist/jsx-runtime.d.ts",
+      "import": "./dist/jsx-runtime.es.js",
+      "require": "./dist/jsx-runtime.umd.js"
+    },
+    "./jsx-dev-runtime": {
+      "types": "./dist/jsx-dev-runtime.d.ts",
+      "import": "./dist/jsx-dev-runtime.es.js",
+      "require": "./dist/jsx-dev-runtime.umd.js"
+    }
+  },
   "scripts": {
     "start": "vite",
     "dev": "vite",
@@ -14,8 +31,12 @@
     "@babel/preset-env": "^7.28.3",
     "@vitejs/plugin-react": "^5.0.1",
     "babel-plugin-jsx-dom-expressions": "^0.40.1",
+    "path": "^0.12.7",
     "typescript": "~5.8.3",
-    "vite": "^7.1.2"
+    "url": "^0.11.4",
+    "vite": "^7.1.2",
+    "vite-plugin-dts": "^4.5.4",
+    "vite-plugin-static-copy": "^3.1.2"
   },
   "dependencies": {
     "csstype": "^3.1.3"
