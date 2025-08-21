@@ -459,8 +459,8 @@ export const createTextNode = (text: string | number) => {
   return node;
 };
 
-// A weak map to store the comment markers for each effect, allowing for cleanup
-const markers = new WeakMap<Node, Node>();
+// We use a WeakMap to store the nodes from the previous render.
+const lastNodesMap = new WeakMap<Node, Node[]>();
 
 export const insert = (
   parent: Node,
@@ -468,47 +468,43 @@ export const insert = (
   anchor: Node | null = null
 ) => {
   // Use a comment node as a marker for the start of the inserted nodes
-  // This allows us to find and clean up old nodes later without affecting others
-  let marker = markers.get(parent);
-  if (!marker) {
-    marker = document.createComment('');
-    markers.set(parent, marker);
-    parent.appendChild(marker);
-  }
-
-  // Use a start anchor for cleanup
-  const startAnchor = marker.nextSibling;
+  let marker = document.createComment('');
+  parent.insertBefore(marker, anchor);
 
   createEffect(() => {
-    // untrack() to prevent the effect from re-running based on signal values
-    // within the accessor, ensuring it only reacts to the signal itself.
-    let resolvedNodes = untrack(accessor);
+    // Corrected: Handle both static values and function accessors
+    const value = typeof accessor === 'function' ? accessor() : accessor;
 
     // Normalize the value into an array of nodes
-    if (!Array.isArray(resolvedNodes)) {
-      resolvedNodes = [resolvedNodes];
-    }
-    const nodesToInsert = (resolvedNodes as any[]).map(child => {
-      if (child instanceof Node) {
-        return child;
+    const resolvedNodes = Array.isArray(value) ? value : [value];
+    
+    const nodesToInsert = resolvedNodes.map(child => {
+      // Check if the child is a function and resolve its value
+      const resolvedChild = typeof child === 'function' ? untrack(child) : child;
+
+      if (resolvedChild instanceof Node) {
+        return resolvedChild;
       }
-      return document.createTextNode(child.toString());
+      return document.createTextNode(resolvedChild.toString());
     });
 
-    // Cleanup: Remove old nodes from the last render
-    let currentNode = startAnchor;
-    while (currentNode && currentNode !== anchor) {
-      const nextNode = currentNode.nextSibling;
-      parent.removeChild(currentNode);
-      currentNode = nextNode;
+    // Get the nodes from the last render associated with this parent
+    const oldNodes = lastNodesMap.get(parent) || [];
+
+    // Remove the old nodes from the DOM
+    for (const node of oldNodes) {
+      if (node.parentNode === parent) {
+        parent.removeChild(node);
+      }
     }
 
-    // Insert new nodes before the specified anchor, or at the end if no anchor is provided.
-    // The marker is used as the insertion point if no anchor is explicitly given.
-    const insertionPoint = anchor || marker;
-    nodesToInsert.forEach(node => {
-      parent.insertBefore(node, insertionPoint);
-    });
+    // Insert new nodes before the marker
+    for (const node of nodesToInsert) {
+      parent.insertBefore(node, marker);
+    }
+    
+    // Store the new nodes for the next render's cleanup
+    lastNodesMap.set(parent, nodesToInsert);
   });
 };
 
