@@ -1,6 +1,8 @@
 export type Accessor<A> = () => A;
-export type Setter<A> = (a: A) => void;
+export type Setter<A> = (a: A) => A;
 export type Signal<A> = [ get: Accessor<A>, set: Setter<A>, ];
+
+export { mapArray } from "./array";
 
 type ADNodeState = "Clean" | "Stale" | "Dirty";
 
@@ -327,6 +329,7 @@ function createSignal2<A>(a: A): Signal<A> {
         value = x;
         dirtyTheSinks(node);
       });
+      return x;
     },
   ];
 }
