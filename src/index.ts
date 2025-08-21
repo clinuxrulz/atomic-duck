@@ -1,3 +1,5 @@
+import type { JSX } from "./jsx-runtime";
+
 export type Accessor<A> = () => A;
 export type Setter<A> = (a: A) => A;
 export type Signal<A> = [ get: Accessor<A>, set: Setter<A>, ];
@@ -599,4 +601,15 @@ function eventHandler(e) {
     }
     node = node.parentNode;
   }
+}
+
+export function render(code: () => JSX.Element, target: HTMLElement): () => void {
+  return createRoot((dispose) => {
+    let node = code() as Node;
+    target.appendChild(node);
+    return () => {
+      target.removeChild(node);
+      dispose();
+    };;
+  });
 }
