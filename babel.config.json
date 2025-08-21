@@ -1,0 +1,14 @@
+{
+  "presets": ["@babel/preset-env"],
+  "plugins": [
+    ["babel-plugin-jsx-dom-expressions", {
+      "moduleName": "./index",
+      "delegateEvents": true,
+      "wrapConditionals": true,
+      "jsx": {
+        "factory": "_createElement",
+        "factoryFragment": "_createFragment"
+      }
+    }]
+  ]
+}

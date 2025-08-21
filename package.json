@@ -10,7 +10,14 @@
     "preview": "vite preview"
   },
   "devDependencies": {
+    "@babel/core": "^7.28.3",
+    "@babel/preset-env": "^7.28.3",
+    "@vitejs/plugin-react": "^5.0.1",
+    "babel-plugin-jsx-dom-expressions": "^0.40.1",
     "typescript": "~5.8.3",
     "vite": "^7.1.2"
+  },
+  "dependencies": {
+    "csstype": "^3.1.3"
   }
 }

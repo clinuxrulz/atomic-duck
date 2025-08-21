@@ -2,14 +2,14 @@ export type Accessor<A> = () => A;
 export type Setter<A> = (a: A) => void;
 export type Signal<A> = [ get: Accessor<A>, set: Setter<A>, ];
 
-type NodeState = "Clean" | "Stale" | "Dirty";
+type ADNodeState = "Clean" | "Stale" | "Dirty";
 
-interface Node {
-  state: NodeState;
-  readonly children?: Set<Node>;
+interface ADNode {
+  state: ADNodeState;
+  readonly children?: Set<ADNode>;
   readonly cleanups?: (() => void)[];
-  readonly sources?: Set<Node>;
-  readonly sinks?: Set<Node>;
+  readonly sources?: Set<ADNode>;
+  readonly sinks?: Set<ADNode>;
   /**
    * The update function.
    * Returns true if the node changed in value.
@@ -17,13 +17,13 @@ interface Node {
   readonly update?: () => boolean;
 }
 
-let owner: Node | undefined = undefined;
-let observer: Node | undefined = undefined;
-let cursorSet = new Set<Node>();
+let owner: ADNode | undefined = undefined;
+let observer: ADNode | undefined = undefined;
+let cursorSet = new Set<ADNode>();
 let transactionDepth = 0;
-let todoStack1: Node[] = [];
-let todoStack2: Node[] = [];
-let resetToStaleSet = new Set<Node>();
+let todoStack1: ADNode[] = [];
+let todoStack2: ADNode[] = [];
+let resetToStaleSet = new Set<ADNode>();
 
 function transaction<A>(k: () => A): A {
   ++transactionDepth;
@@ -100,7 +100,7 @@ function backwardsFlush() {
     resetToStaleSet.clear();
 }
 
-function useOwner<A>(innerOwner: Node, k: () => A): A {
+function useOwner<A>(innerOwner: ADNode, k: () => A): A {
   let oldOwner = owner;
   owner = innerOwner;
   let result: A;
@@ -112,7 +112,7 @@ function useOwner<A>(innerOwner: Node, k: () => A): A {
   return result;
 }
 
-function useObserver<A>(innerObserver: Node | undefined, k: () => A): A {
+function useObserver<A>(innerObserver: ADNode | undefined, k: () => A): A {
   let oldObserver = observer;
   observer = innerObserver;
   let result: A;
@@ -124,7 +124,7 @@ function useObserver<A>(innerObserver: Node | undefined, k: () => A): A {
   return result;
 }
 
-function useOwnerAndObserver<A>(innerOwnerAndObserver: Node | undefined, k: () => A): A {
+function useOwnerAndObserver<A>(innerOwnerAndObserver: ADNode | undefined, k: () => A): A {
   let oldOwner = owner;
   let oldObserver = observer;
   let result: A;
@@ -139,7 +139,7 @@ function useOwnerAndObserver<A>(innerOwnerAndObserver: Node | undefined, k: () =
   return result;
 }
 
-function dirtyTheSinks(node: Node) {
+function dirtyTheSinks(node: ADNode) {
   if (node.sinks == undefined) {
     return;
   }
@@ -154,11 +154,11 @@ function dirtyTheSinks(node: Node) {
   }
 }
 
-function resolveNode(node: Node) {
+function resolveNode(node: ADNode) {
   if (node.state == "Clean") {
     return;
   }
-  let dirtyOrStaleSources: Node[] = [];
+  let dirtyOrStaleSources: ADNode[] = [];
   if (node.sources != undefined) {
     for (let source of node.sources) {
       if (source.state == "Dirty" || source.state == "Stale") {
@@ -184,7 +184,7 @@ function resolveNode(node: Node) {
   }
 }
 
-function cleanupNode(node: Node) {
+function cleanupNode(node: ADNode) {
   let stack = [ node, ];
   while (true) {
     let atNode = stack.pop();
@@ -227,11 +227,11 @@ export function createMemo<A>(
   }
   let equals = options?.equals ?? ((a, b) => a === b);
   let value: A | undefined = undefined;
-  let children = new Set<Node>();
+  let children = new Set<ADNode>();
   let cleanups: (() => void)[] = [];
-  let sources = new Set<Node>();
-  let sinks = new Set<Node>();
-  let node: Node = {
+  let sources = new Set<ADNode>();
+  let sinks = new Set<ADNode>();
+  let node: ADNode = {
     state: "Dirty",
     children,
     cleanups,
@@ -264,11 +264,11 @@ export function createEffect(k: () => void) {
   if (owner == undefined) {
     throw new Error("Creating an effect outside owner is not supported.");
   }
-  let children = new Set<Node>();
+  let children = new Set<ADNode>();
   let cleanups: (() => void)[] = [];
-  let sources = new Set<Node>();
-  let sinks = new Set<Node>();
-  let node: Node = {
+  let sources = new Set<ADNode>();
+  let sinks = new Set<ADNode>();
+  let node: ADNode = {
     state: "Dirty",
     children,
     cleanups,
@@ -309,8 +309,8 @@ export function createSignal<A>(a?: A): Signal<A> | Signal<A | undefined> {
 
 function createSignal2<A>(a: A): Signal<A> {
   let value = a;
-  let sinks = new Set<Node>();
-  let node: Node = {
+  let sinks = new Set<ADNode>();
+  let node: ADNode = {
     state: "Clean",
     sinks,
   };
@@ -332,9 +332,9 @@ function createSignal2<A>(a: A): Signal<A> {
 }
 
 export function createRoot<A>(k: (dispose: () => void) => A): A {
-  let children = new Set<Node>();
+  let children = new Set<ADNode>();
   let cleanups: (() => void)[] = [];
-  let node: Node = {
+  let node: ADNode = {
     state: "Clean",
     children,
     cleanups,
@@ -347,10 +347,10 @@ export function createHalfEdge<A>(a: Accessor<A>): Accessor<void> {
   if (owner == undefined) {
     throw new Error("Creating a half edge outside owner is not supported.");
   }
-  let children = new Set<Node>();
+  let children = new Set<ADNode>();
   let cleanups: (() => void)[] = [];
-  let sources = new Set<Node>();
-  let node: Node = {
+  let sources = new Set<ADNode>();
+  let node: ADNode = {
     state: "Dirty",
     children,
     cleanups,
@@ -417,4 +417,143 @@ export function createSelector<A>(selection: Accessor<A | undefined>): (key: A) 
     });
     return entry.s[0]();
   };
+}
+
+// We must export these so the babel plugin can find them
+export const _createElement = (tag: string, props: any, ...children: any[]) => {
+  const el = document.createElement(tag) as HTMLElement;
+
+  for (const propName in props) {
+    if (propName === 'ref') {
+      props.ref(el);
+      continue;
+    }
+    if (propName === 'style') {
+      Object.assign(el.style, props[propName]);
+      continue;
+    }
+    if (propName.startsWith('on')) {
+      const eventName = propName.slice(2).toLowerCase();
+      el.addEventListener(eventName, props[propName]);
+      continue;
+    }
+    if (propName === 'className') {
+      el.setAttribute('class', props[propName]);
+      continue;
+    }
+
+    // Set other attributes
+    el.setAttribute(propName, props[propName]);
+  }
+
+  // Handle children, including text and other elements
+  _insert(el, children);
+
+  return el;
+};
+
+// Creates a reactive text node.
+export const _createTextNode = (text: string | number) => {
+  const node = document.createTextNode('');
+  _insert(node, text);
+  return node;
+};
+
+export const _insert = (
+  parent: Node,
+  accessor: any,
+  anchor: Node | null = null
+) => {
+  // Normalize the input into an array
+  const children = Array.isArray(accessor) ? accessor : [accessor];
+
+  createEffect(() => {
+    // We use untrack to ensure that changes to the value inside a `_insert` call
+    // don't cause the `createEffect` to re-run, but that the `createEffect`
+    // only re-runs when the dependencies accessed *inside* the accessor change.
+    const resolvedChildren = children.map(child => {
+      // If the child is a function, it's a dynamic value (a signal)
+      if (typeof child === 'function') {
+        return untrack(child);
+      }
+      return child;
+    });
+
+    // Clear existing children from the parent
+    if (parent.nodeType === Node.TEXT_NODE) {
+      // For text nodes, update the content
+      parent.nodeValue = resolvedChildren.join('');
+    } else {
+      // For element nodes, clear existing children and append new ones
+      while (parent.firstChild) {
+        parent.removeChild(parent.firstChild);
+      }
+      resolvedChildren.forEach(child => {
+        if (child instanceof Node) {
+          parent.appendChild(child);
+        } else if (typeof child !== 'undefined' && child !== null) {
+          parent.appendChild(document.createTextNode(child.toString()));
+        }
+      });
+    }
+  });
+};
+
+export const _createFragment = (children: any[]) => {
+  const fragment = document.createDocumentFragment();
+  children.forEach(child => {
+    if (child instanceof Node) {
+      fragment.appendChild(child);
+    } else if (typeof child !== 'undefined' && child !== null) {
+      fragment.appendChild(document.createTextNode(child.toString()));
+    }
+  });
+  return fragment;
+};
+
+export function setAttribute(el: Element, key: string, value: any) {
+  if (value == null || value === false) {
+    el.removeAttribute(key);
+  } else {
+    el.setAttribute(key, value);
+  }
+}
+
+// A cache to store the master copy of the template nodes
+const templateCache = new Map<string, Node>();
+
+/**
+ * Creates and caches a template node, returning a factory function
+ * that produces a deep clone of the node each time it's called.
+ *
+ * @param html The HTML string for the template.
+ * @param isSVG Whether the template is an SVG fragment.
+ * @returns A factory function that returns a cloned node.
+ */
+export function template(html: string, isSVG: boolean = false): () => Node {
+  // Use a unique key for the cache that includes the SVG flag
+  const cacheKey = `${html}:${isSVG}`;
+  let cachedNode = templateCache.get(cacheKey);
+
+  // If the template is not in the cache, create it
+  if (!cachedNode) {
+    // Create a <template> element, which can parse HTML without rendering it
+    const templateEl = document.createElement('template');
+    templateEl.innerHTML = html;
+
+    if (isSVG) {
+      // The babel plugin wraps SVG fragments in an <svg> tag to ensure they
+      // are parsed correctly. Get the actual element inside the wrapper.
+      cachedNode = templateEl.content.firstChild!.firstChild!;
+    } else {
+      // For regular HTML, the node is the first child of the template's content
+      cachedNode = templateEl.content.firstChild!;
+    }
+
+    // Store the master copy in the cache for future use
+    templateCache.set(cacheKey, cachedNode!);
+  }
+
+  // Return a function that, when called, returns a deep clone of the cached node.
+  return () => cachedNode!.cloneNode(true);
 }
