@@ -1,8 +1,10 @@
+import { mapArray } from "./array";
 import type { JSX } from "./jsx-runtime";
 
 export type Accessor<A> = () => A;
 export type Setter<A> = (a: A) => A;
 export type Signal<A> = [ get: Accessor<A>, set: Setter<A>, ];
+export type Component<P={}> = (props: P) => JSX.Element;
 
 export { mapArray } from "./array";
 
@@ -603,6 +605,12 @@ function eventHandler(e) {
   }
 }
 
+export const memo = createMemo;
+
+export const createComponent = (Comp: Function, props: any) => {
+  return untrack(() => Comp(props));
+};
+
 export function render(code: () => JSX.Element, target: HTMLElement): () => void {
   return createRoot((dispose) => {
     let node = code() as Node;
@@ -613,3 +621,6 @@ export function render(code: () => JSX.Element, target: HTMLElement): () => void
     };;
   });
 }
+
+export { For } from "./components";
+
