@@ -367,11 +367,16 @@ export function createHalfEdge<A>(a: Accessor<A>): Accessor<void> {
       return false;
     },
   };
-  transaction(() => cursorSet.add(node));
+  owner.children?.add(node);
+  transaction(() => {
+    cursorSet.add(node);
+    resetToStaleSet.add(node);
+  });
   return () => {
     if (observer != undefined) {
       observer.sources?.add(node);
     }
+    resolveNode(node);
   };
 }
 
@@ -671,34 +676,6 @@ export const effect = (fn: Function, node: Node) => {
 };
 
 /**
- * Merges multiple props objects into a single object, preserving reactivity.
- * This is crucial for handling default props and component overrides.
- * @param args The props objects to merge.
- * @returns A single, merged props object.
- */
-/*
-export const mergeProps = (...args: any[]) => {
-  const merged = {};
-
-  // Iterate over the arguments in reverse order to apply them
-  // This ensures that later props override earlier ones
-  for (let i = args.length - 1; i >= 0; i--) {
-    const props = args[i];
-
-    // Use Reflect.ownKeys to get all properties, including symbols
-    for (const key of Reflect.ownKeys(props)) {
-      // If the property is not yet defined on the merged object, or if it's not a getter,
-      // get the property descriptor from the original props object.
-      if (!merged.hasOwnProperty(key)) {
-        Object.defineProperty(merged, key, Object.getOwnPropertyDescriptor(props, key)!);
-      }
-    }
-  }
-
-  return merged;
-};*/
-
-/**
  * Merges multiple props arrays and objects into a single, iterable,
  * array-like props object.
  * @param args The props arrays and objects to merge.
@@ -745,6 +722,22 @@ export const mergeProps = (...args: any[]) => {
   return merged;
 };
 
+/**
+ * Sets a single CSS property on an HTML element.
+ * It also handles clearing the property if the value is null or undefined.
+ * @param node The HTML element to style.
+ * @param name The name of the CSS property (e.g., 'color', 'background-color').
+ * @param value The value to set for the property.
+ */
+export const setStyleProperty = (node: HTMLElement, name: string, value: any) => {
+  if (value === null || value === undefined) {
+    // If the value is null or undefined, remove the property
+    node.style.removeProperty(name);
+  } else {
+    // Otherwise, set the property with the given value
+    node.style.setProperty(name, value);
+  }
+};
 
 export function render(code: () => JSX.Element, target: HTMLElement): () => void {
   return createRoot((dispose) => {
