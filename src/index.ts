@@ -467,13 +467,13 @@ export const createTextNode = (text: string | number) => {
 };
 
 // We use a WeakMap to store the nodes from the previous render.
-const lastNodesMap = new WeakMap<Node, Node[]>();
 
 export const insert = (
   parent: Node,
   accessor: any,
   anchor: Node | null = null
 ) => {
+  const lastNodesMap = new WeakMap<Node, Node[]>();
   // Use a comment node as a marker for the start of the inserted nodes
   let marker = document.createComment('');
   parent.insertBefore(marker, anchor);
@@ -610,6 +610,141 @@ export const memo = createMemo;
 export const createComponent = (Comp: Function, props: any) => {
   return untrack(() => Comp(props));
 };
+
+// This function is called by the JSX compiler for every event attribute (e.g., `onClick`).
+// It sets the event handler directly on the node and delegates the event.
+export const addEventListener = (
+  node: Node,
+  name: string,
+  handler: Function
+) => {
+  // Prepend '$$' to the event name to create a unique property key for the handler.
+  // This is a convention of `babel-plugin-jsx-dom-expressions`.
+  const propertyKey = `$$${name}`;
+  (node as any)[propertyKey] = handler;
+
+  // Call the delegateEvents function to ensure a single event listener is
+  // active on the document for this event type.
+  delegateEvents([name]);
+};
+
+/**
+ * Handles the className attribute for JSX elements.
+ * It is reactive and updates the element's class when the accessor's value changes.
+ * @param node The DOM node to apply the class to.
+ * @param accessor The value or a signal function that returns the class value.
+ */
+export const className = (node: HTMLElement, accessor: any) => {
+  // Use a reactive effect to handle all class name updates
+  createEffect(() => {
+    // Get the current value, handling both static values and signal functions
+    const value = typeof accessor === 'function' ? accessor() : accessor;
+
+    // Based on the value's type, build the final class string
+    let classes = '';
+    if (typeof value === 'string') {
+      classes = value;
+    } else if (Array.isArray(value)) {
+      // Filter out null, undefined, and false values and join the rest
+      classes = value.filter(Boolean).join(' ');
+    } else if (typeof value === 'object' && value !== null) {
+      // For an object, include classes with truthy values
+      const activeClasses = Object.entries(value)
+        .filter(([, isActive]) => isActive)
+        .map(([className]) => className);
+      classes = activeClasses.join(' ');
+    }
+
+    // Set the className on the DOM node
+    node.className = classes;
+  });
+};
+
+/**
+ * Executes a reactive side effect on a DOM node.
+ * The effect's callback is automatically re-run whenever a signal it accesses changes.
+ * @param node The DOM node on which the effect is declared.
+ * @param fn The callback function to execute. It receives the `node` as its only argument.
+ */
+export const effect = (node: Node, fn: Function) => {
+  createEffect(() => fn(node));
+};
+
+/**
+ * Merges multiple props objects into a single object, preserving reactivity.
+ * This is crucial for handling default props and component overrides.
+ * @param args The props objects to merge.
+ * @returns A single, merged props object.
+ */
+/*
+export const mergeProps = (...args: any[]) => {
+  const merged = {};
+
+  // Iterate over the arguments in reverse order to apply them
+  // This ensures that later props override earlier ones
+  for (let i = args.length - 1; i >= 0; i--) {
+    const props = args[i];
+
+    // Use Reflect.ownKeys to get all properties, including symbols
+    for (const key of Reflect.ownKeys(props)) {
+      // If the property is not yet defined on the merged object, or if it's not a getter,
+      // get the property descriptor from the original props object.
+      if (!merged.hasOwnProperty(key)) {
+        Object.defineProperty(merged, key, Object.getOwnPropertyDescriptor(props, key)!);
+      }
+    }
+  }
+
+  return merged;
+};*/
+
+/**
+ * Merges multiple props arrays and objects into a single, iterable,
+ * array-like props object.
+ * @param args The props arrays and objects to merge.
+ * @returns A single, merged props object that is array-like and iterable.
+ */
+export const mergeProps = (...args: any[]) => {
+  const merged = {};
+  let lastIndex = 0;
+
+  // First, process all arguments and combine them into a single, flat structure
+  // We do this in a single loop to correctly handle a mix of arrays and objects
+  for (const props of args) {
+    if (Array.isArray(props)) {
+      // If it's an array, merge its elements by their index
+      for (let i = 0; i < (props as any).length; i++) {
+        Object.defineProperty(merged, i, Object.getOwnPropertyDescriptor(props, i)!);
+        if (i >= lastIndex) {
+          lastIndex = i + 1;
+        }
+      }
+    } else {
+      // If it's an object, merge its properties using the standard logic
+      for (const key of Reflect.ownKeys(props)) {
+        Object.defineProperty(merged, key, Object.getOwnPropertyDescriptor(props, key)!);
+      }
+    }
+  }
+
+  // Manually add a length property to make it array-like
+  Object.defineProperty(merged, 'length', {
+    value: lastIndex,
+    writable: true,
+    enumerable: false,
+    configurable: true,
+  });
+
+  // Manually add the Symbol.iterator to make it iterable
+  merged[Symbol.iterator] = function*() {
+    for (let i = 0; i < (merged as any).length; i++) {
+      yield merged[i];
+    }
+  };
+
+  return merged;
+};
+
 
 export function render(code: () => JSX.Element, target: HTMLElement): () => void {
   return createRoot((dispose) => {
