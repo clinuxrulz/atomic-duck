@@ -666,7 +666,7 @@ export const className = (node: HTMLElement, accessor: any) => {
  * @param node The DOM node on which the effect is declared.
  * @param fn The callback function to execute. It receives the `node` as its only argument.
  */
-export const effect = (node: Node, fn: Function) => {
+export const effect = (fn: Function, node: Node) => {
   createEffect(() => fn(node));
 };
 
