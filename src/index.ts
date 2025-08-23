@@ -84,6 +84,7 @@ function backwardsFlush() {
             if (node.state == "Stale") {
                 node.state = "Clean";
             } else if (node.state == "Dirty") {
+                node.state = "Clean";
                 if (node.update != undefined) {
                     let changed = node.update();
                     if (changed) {
@@ -96,7 +97,6 @@ function backwardsFlush() {
                       }
                     }
                 }
-                node.state = "Clean";
             }
         }
     }
