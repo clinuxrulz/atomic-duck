@@ -1,5 +1,5 @@
 import { mapArray } from "./array";
-import type { JSX } from "./jsx-runtime";
+import type { JSX } from "./jsx.d.ts";
 
 export type Accessor<A> = () => A;
 export type Setter<A> = (a: A) => A;

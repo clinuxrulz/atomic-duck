@@ -8,6 +8,7 @@ export {
   onCleanup,
   createRoot,
 } from './index';
+import { createEffect } from './index';
 
 // You can move the implementation of these helpers here or just re-export them.
 // For simplicity, let's assume you've moved them here.
