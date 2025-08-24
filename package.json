@@ -5,9 +5,9 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist/atomic-duck.d.ts",
-      "import": "./dist/atomic-duck.es.js",
-      "require": "./dist/atomic-duck.umd.js"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.es.js",
+      "require": "./dist/index.umd.js"
     },
     "./jsx-runtime": {
       "types": "./dist/jsx-runtime.d.ts",
