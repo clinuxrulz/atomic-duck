@@ -21,7 +21,7 @@ export function template(html: string, isSVG?: boolean) {
   t.innerHTML = html;
   // for SVG, the plugin wraps it in an <svg> tag, so we need to go one level deeper
   let node = isSVG ? t.content.firstChild!.firstChild! : t.content.firstChild!;
-  return node.cloneNode(true);
+  return () => node.cloneNode(true);
 }
 
 const delegatedEvents = new Set<string>();
