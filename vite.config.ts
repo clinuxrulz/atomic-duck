@@ -6,24 +6,15 @@ import { fileURLToPath } from 'url';
 import dts from 'vite-plugin-dts';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 
-// Convert import.meta.url to a file path and get the directory name
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = resolve(__filename, '..');
 
 export default defineConfig({
   plugins: [
     dts({
-      // Specifies the root directory for your TypeScript source files
       entryRoot: 'src',
-      // Specifies the output directory for the declaration files
       outDir: 'dist',
-      // Optional: Merges all declaration files into a single file
       rollupTypes: true,
-      compilerOptions: {
-        // This option is needed when rollupTypes is true to set the output name
-        declarationMap: false,
-        declarationDir: './dist',
-      },
     }),
     viteStaticCopy({
       targets: [
@@ -34,22 +25,37 @@ export default defineConfig({
       ],
     }),
     react({
-      // We are not using React, so we use the 'classic' runtime
-      // which allows for custom factory functions like yours.
-      jsxRuntime: 'classic',
-      jsxImportSource: ".",
+      // Switch to the 'automatic' runtime. This is what dom-expressions is designed for.
+      jsxRuntime: 'automatic',
+      // This should be the name of your package.
+      // It tells the transformer what to import from.
+      jsxImportSource: 'atomic-duck', 
 
-      // This is the key: we override the default babel config
-      // to use the SolidJS-like JSX transform plugin.
+      // Configure Babel to use dom-expressions
       babel: {
         plugins: [
           [
             'babel-plugin-jsx-dom-expressions',
             {
-              // These settings should match your babel.config.json
-              moduleName: './index', // Path to your library's entry point
+              // This is the import path for the runtime helpers.
+              // The compiled output will have `import { ... } from "atomic-duck/jsx-runtime"`
+              moduleName: 'atomic-duck/jsx-runtime',
+              // Keep your other desired settings
               delegateEvents: true,
               wrapConditionals: true,
+              contextToCustomElements: true,
+              builtIns: [
+                "For",
+                "Show",
+                "Switch",
+                "Match",
+                "Suspense",
+                "SuspenseList",
+                "Portal",
+                "Index",
+                "Dynamic",
+                "ErrorBoundary"
+              ]
             },
           ],
         ],
@@ -59,26 +65,33 @@ export default defineConfig({
 
   build: {
     lib: {
+      // Your multi-entry setup is correct!
       entry: {
-        'atomic-duck': resolve(__dirname, 'src/index.ts'),
+        'index': resolve(__dirname, 'src/index.ts'),
         'jsx-runtime': resolve(__dirname, 'src/jsx-runtime.ts'),
-        'jsx-dev-runtime': resolve(__dirname, 'src/jsx-dev-runtime.ts'),
       },
-      //      entry: resolve(__dirname, 'src/index.ts'),
-      name: 'atomic-duck',
-      fileName: (format) => `atomic-duck.${format}.js`,
+      // Use a function to dynamically name output files
+      fileName: (format, entryName) => `${entryName}.${format}.js`,
+      // Output formats
+      formats: ['es', 'cjs'],
     },
     rollupOptions: {
-      // It's a good practice to externalize any dependencies
-      // that consumers of your library will also have, to avoid
-      // bundling duplicates.
       external: ['csstype'],
     },
   },
-  // This is also crucial. It configures Vite's dev server (esbuild)
-  // to use your custom functions instead of React.createElement.
-  esbuild: {
-    jsxFactory: 'createElement',
-    jsxFragment: 'createFragment',
-  },
+
+  // **CRITICAL:** Remove the esbuild jsx configuration entirely.
+  // We want Babel to handle JSX, not esbuild.
+  // esbuild: { ... }, // <--- DELETE THIS BLOCK
+
+  // Add a resolve alias for development.
+  // This tells Vite's dev server that whenever it sees an import for "atomic-duck/jsx-runtime",
+  // it should load your local `src/jsx-runtime.ts` file.
+  resolve: {
+    alias: {
+      'atomic-duck/jsx-runtime': resolve(__dirname, 'src/jsx-runtime.ts'),
+      'atomic-duck': resolve(__dirname, 'src/index.ts'),
+    }
+  }
 });
+
