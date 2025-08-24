@@ -64,6 +64,7 @@ export default defineConfig({
   ],
 
   build: {
+    minify: false,
     lib: {
       // Your multi-entry setup is correct!
       entry: {
