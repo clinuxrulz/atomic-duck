@@ -39,6 +39,7 @@ export default defineConfig({
 
   // **CRITICAL for Monorepos:** Use aliases to point imports directly to the
   // source code of your library package. This enables hot-reloading.
+  /*
   resolve: {
     alias: {
       // When your code imports from "atomic-duck/jsx-runtime",
@@ -49,6 +50,6 @@ export default defineConfig({
       // Vite will load the main entry source file.
       'atomic-duck': resolve(__dirname, '../../src/index.ts'),
     },
-  },
+  },*/
 });
 
