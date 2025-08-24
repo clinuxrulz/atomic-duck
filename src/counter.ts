@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createRoot, createSignal } from "."
+import { createEffect, createMemo, createRoot, createSignal } from "./lib"
 
 export function setupCounters(
   element1: HTMLButtonElement,

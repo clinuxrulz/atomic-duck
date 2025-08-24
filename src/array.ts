@@ -1,4 +1,4 @@
-import { createRoot, createSignal, onCleanup, untrack, type Accessor } from ".";
+import { createRoot, createSignal, onCleanup, untrack, type Accessor } from "./lib";
 
 const FALLBACK = Symbol("fallback");
 function dispose(d: (() => void)[]) {

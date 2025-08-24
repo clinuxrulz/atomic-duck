@@ -1,35 +1,30 @@
-// vite.config.ts
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-
 
 export default defineConfig({
   plugins: [
     react({
-      // We are not using React, so we use the 'classic' runtime
-      // which allows for custom factory functions like yours.
-      jsxRuntime: 'classic',
-      jsxImportSource: "atomic-duck",
-
-      // This is the key: we override the default babel config
-      // to use the SolidJS-like JSX transform plugin.
+      // This is where you configure Babel
       babel: {
         plugins: [
           [
             'babel-plugin-jsx-dom-expressions',
             {
-              // These settings should match your babel.config.json
-              moduleName: "atomic-duck", // Path to your library's entry point
-              delegateEvents: true,
-              wrapConditionals: true,
+              moduleName: 'atomic-duck',
+              // delegateEvents: true, // Uncomment if you need this option
+              // wrapConditionals: true, // Uncomment if you need this option
             },
           ],
         ],
       },
+      // You can also specify the JSX runtime here, but the babel config above should handle it
+      // jsxRuntime: 'classic' // This might be needed depending on the library
     }),
   ],
-  esbuild: {
-    jsxFactory: '_createElement',
-    jsxFragment: '_createFragment',
-  },
+  resolve: {
+    alias: {
+      'atomic-duck/jsx-dev-runtime': 'atomic-duck',
+    },
+  }
 });
+

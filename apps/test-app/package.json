@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "atomic-duck": "workspace:^"
+    "atomic-duck": "workspace:^",
+    "vite-plugin-solid": "^2.11.8"
   }
 }
