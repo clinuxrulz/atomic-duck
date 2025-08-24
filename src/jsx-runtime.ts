@@ -15,13 +15,38 @@ import { createEffect } from './index';
 // NOTE: I have simplified some of your implementations to be more idiomatic with dom-expressions
 // and removed your old createElement/insert functions which are no longer needed.
 
-// We must export these so the babel plugin can find them
-export function template(html: string, isSVG?: boolean) {
-  const t = document.createElement("template");
-  t.innerHTML = html;
-  // for SVG, the plugin wraps it in an <svg> tag, so we need to go one level deeper
-  let node = isSVG ? t.content.firstChild!.firstChild! : t.content.firstChild!;
-  return () => node.cloneNode(true);
+// A cache to store the master copy of the template nodes
+const templateCache = new Map<string, Node>();
+
+/**
+ * Creates and caches a template node from an HTML string.
+ * This function is called ONCE per template by the compiler.
+ * It MUST return a new function that can be called repeatedly to clone the template.
+ */
+export function template(html: string, isSVG?: boolean): () => Node {
+  const cacheKey = isSVG ? `svg:${html}` : html;
+  let cachedNode = templateCache.get(cacheKey);
+
+  if (!cachedNode) {
+    // Create a <template> element, which can parse HTML without rendering it
+    const templateEl = document.createElement('template');
+    templateEl.innerHTML = html;
+
+    // For SVG, the babel plugin wraps fragments in an <svg> tag to ensure they
+    // are parsed correctly. We need to get the actual element inside the wrapper.
+    cachedNode = isSVG
+      ? templateEl.content.firstChild!.firstChild!
+      : templateEl.content.firstChild!;
+
+    // Store the master copy in the cache for future use
+    templateCache.set(cacheKey, cachedNode!);
+  }
+
+  // **THE FIX IS HERE:**
+  // Return a new function that, when called, returns a deep clone of the cached node.
+  // The compiler assigns this returned function to the `$tmpl` variable.
+  const nodeToClone = cachedNode;
+  return () => nodeToClone.cloneNode(true);
 }
 
 const delegatedEvents = new Set<string>();
