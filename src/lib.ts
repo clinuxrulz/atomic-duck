@@ -495,15 +495,26 @@ function runDisposal(node: Computed<unknown>): void {
 }
 
 export function createRoot<A>(k: (dispose: () => void) => A): A {
-  let children = new Set<ADNode>();
-  let cleanups: (() => void)[] = [];
-  let node: ADNode = {
-    state: "Clean",
-    children,
-    cleanups,
-  };
-  let dispose = () => cleanupNode(node);
-  return useOwner(node, () => k(dispose));
+  // ???
+  return k(() => {});
+}
+
+export function createSignal<A>(): Signal<A | undefined>;
+export function createSignal<A>(a: A): Signal<A>;
+export function createSignal<A>(a?: A): Signal<A | undefined> {
+  let s = signal(a);
+  return [
+    () => read(s),
+    (x: A | undefined) => {
+      setSignal(s, x);
+      return x;
+    }
+  ];
+}
+
+export function createMemo<A>(k: () => A): Accessor<A> {
+  let r = computed(k);
+  return () => read(r);
 }
 
 export function createHalfEdge<A>(a: Accessor<A>): Accessor<void> {
