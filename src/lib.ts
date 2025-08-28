@@ -517,6 +517,10 @@ export function createMemo<A>(k: () => A): Accessor<A> {
   return () => read(r);
 }
 
+export function createEffect(k: () => void) {
+  computed(k, true);
+}
+
 export function createHalfEdge<A>(a: Accessor<A>): Accessor<void> {
   return createMemo(() => {
     a();
