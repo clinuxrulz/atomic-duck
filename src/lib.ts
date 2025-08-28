@@ -518,33 +518,15 @@ export function createMemo<A>(k: () => A): Accessor<A> {
 }
 
 export function createHalfEdge<A>(a: Accessor<A>): Accessor<void> {
-  if (owner == undefined) {
-    throw new Error("Creating a half edge outside owner is not supported.");
-  }
-  let children = new Set<ADNode>();
-  let cleanups: (() => void)[] = [];
-  let sources = new Set<ADNode>();
-  let node: ADNode = {
-    state: "Dirty",
-    children,
-    cleanups,
-    sources,
-    update: () => {
-      useOwnerAndObserver(node, a);
-      return false;
-    },
-  };
-  owner.children?.add(node);
-  transaction(() => {
-    cursorSet.add(node);
-    resetToStaleSet.add(node);
+  return createMemo(() => {
+    a();
+    return undefined;
   });
-  return () => {
-    if (observer != undefined) {
-      observer.sources?.add(node);
-    }
-    resolveNode(node);
-  };
+}
+
+export function untrack<A>(k: () => A): A {
+  // ???
+  return k();
 }
 
 export function createSelector<A>(selection: Accessor<A | undefined>): (key: A) => boolean {
