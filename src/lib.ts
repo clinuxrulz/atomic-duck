@@ -8,62 +8,70 @@ export type Component<P={}> = (props: P) => JSX.Element;
 
 export { mapArray } from "./array.ts";
 
-export interface Cleanup {
+interface Disposable {
   (): void;
 }
 
-const enum ADNodeFlags {
+const enum ReactiveFlags {
   None = 0,
   Dirty = 1 << 0,
   RecomputingDeps = 1 << 1,
   InHeap = 1 << 2,
   InFallbackHeap = 1 << 3,
-};
-
-export interface Link {
-  dep: ADNode;
-  sub: ADNode;
-  nextDep: Link | undefined;
-  prevSub: Link | undefined;
-  nextSub: Link | undefined;
-};
-
-interface ADNode {
-  deps: Link | undefined;
-  depsTail: Link | undefined;
-  flags: ADNodeFlags;
-  context: ADNode;
-  height: number;
-  nextHeap: ADNode | undefined;
-  prevHeap: ADNode;
-  cleanup: Cleanup | Cleanup[] | undefined;
-  /**
-   * The update function.
-   * Returns true if the node changed in value.
-   */
-  readonly update?: () => boolean;
 }
 
-let context: ADNode | undefined = undefined;
+interface Link {
+  dep: Signal2<unknown> | Computed<unknown>;
+  sub: Computed<unknown>;
+  nextDep: Link | null;
+  prevSub: Link | null;
+  nextSub: Link | null;
+}
 
-let minDirty = Number.POSITIVE_INFINITY;
+interface RawSignal<T> {
+  subs: Link | null;
+  subsTail: Link | null;
+  value: T;
+}
+
+interface FirewallSignal<T> extends RawSignal<T> {
+  owner: Computed<unknown>;
+}
+
+type Signal2<T> = RawSignal<T> | FirewallSignal<T>;
+
+interface Computed<T> extends RawSignal<T> {
+  deps: Link | null;
+  depsTail: Link | null;
+  flags: ReactiveFlags;
+  context: Computed<unknown> | null;
+  height: number;
+  nextHeap: Computed<unknown> | undefined;
+  prevHeap: Computed<unknown>;
+  disposal: Disposable | Disposable[] | null;
+  fn: () => T;
+}
+
+let context: Computed<unknown> | null = null;
+
+let minDirty = Infinity;
 let maxDirty = 0;
 let nextMaxDirty = 0;
 let contextHeight = 0;
 let heapSize = 0;
-let fallbackHeap: ADNode | undefined = undefined;
-const dirtyHeap: (ADNode | undefined)[] = new Array(2000);
+let fallbackHeap: Computed<unknown> | undefined = undefined;
+const dirtyHeap: (Computed<unknown> | undefined)[] = new Array(2000);
 function increaseHeapSize(n: number) {
   if (n > dirtyHeap.length) {
     dirtyHeap.length = n;
   }
 }
 
-function insertIntoHeapMap(n: ADNode) {
+function insertIntoHeap(n: Computed<unknown>) {
   let flags = n.flags;
-  if (flags & (ADNodeFlags.InHeap | ADNodeFlags.RecomputingDeps)) return;
-  if (flags & ADNodeFlags.InFallbackHeap) {
-    // flags ^= ADNodeFlags.InFallbackHeap;
+  if (flags & (ReactiveFlags.InHeap | ReactiveFlags.RecomputingDeps)) return;
+  if (flags & ReactiveFlags.InFallbackHeap) {
+    // flags ^= ReactiveFlags.InFallbackHeap;
     if (n.prevHeap === n) {
       fallbackHeap = undefined;
     } else {
@@ -81,7 +89,7 @@ function insertIntoHeapMap(n: ADNode) {
     n.nextHeap = undefined;
   }
   heapSize++;
-  n.flags = flags | ADNodeFlags.InHeap;
+  n.flags = flags | ReactiveFlags.InHeap;
   const height = n.height;
   const heapAtHeight = dirtyHeap[height];
   if (heapAtHeight === undefined) {
@@ -99,311 +107,391 @@ function insertIntoHeapMap(n: ADNode) {
   }
 }
 
-function transaction<A>(k: () => A): A {
-  ++transactionDepth;
-  let result: A;
-  try {
-    result = k();
-  } finally {
-    --transactionDepth;
+function moveToFallbackHeap(n: Computed<unknown>) {
+  const flags = n.flags;
+  if (flags & ReactiveFlags.InFallbackHeap) return;
+  deleteFromHeap(n);
+  n.flags |= ReactiveFlags.InFallbackHeap;
+  if (fallbackHeap === undefined) {
+    fallbackHeap = n;
+  } else {
+    const tail = fallbackHeap.prevHeap;
+    tail.nextHeap = n;
+    n.prevHeap = tail;
+    fallbackHeap.prevHeap = n;
   }
-  if (transactionDepth == 0) {
-    backwardsFlush();
-  }
-  return result;
 }
 
-function backwardsFlush() {
-    todoStack1.push(...cursorSet);
-    cursorSet.clear();
-    while (true) {
-        let node = todoStack1.pop();
-        if (node == undefined) {
-            let tmp = todoStack1;
-            todoStack1 = todoStack2;
-            todoStack2 = tmp;
-            todoStack1.reverse();
-            node = todoStack1.pop();
-            if (node == undefined) {
-                break;
-            }
-        }
-        if (node.state == "Clean") {
+function deleteFromHeap(n: Computed<unknown>) {
+  const flags = n.flags;
+  if (!(flags & ReactiveFlags.InHeap)) return;
+  heapSize--;
+  n.flags = flags & ~ReactiveFlags.InHeap;
+  const height = n.height;
+  if (n.prevHeap === n) {
+    dirtyHeap[height] = undefined;
+  } else {
+    const next = n.nextHeap;
+    const dhh = dirtyHeap[height]!;
+    const end = next ?? dhh;
+    if (n === dhh) {
+      dirtyHeap[height] = next;
+    } else {
+      n.prevHeap.nextHeap = next;
+    }
+    end.prevHeap = n.prevHeap;
+  }
+  n.prevHeap = n;
+  n.nextHeap = undefined;
+}
+
+function computed<T>(fn: () => T, isEager = false): Computed<T> {
+  const self: Computed<T> = {
+    disposal: null,
+    fn: fn,
+    value: undefined as T,
+    height: 0,
+    nextHeap: undefined,
+    prevHeap: null as any,
+    deps: null,
+    depsTail: null,
+    subs: null,
+    subsTail: null,
+    flags: ReactiveFlags.Dirty,
+    context,
+  };
+  self.prevHeap = self;
+  if (context) {
+    self.height = contextHeight + 1;
+    link(self, context);
+  }
+  if (isEager) {
+    insertIntoHeap(self);
+  }
+  return self;
+}
+
+function signal<T>(
+  v: T,
+  firewall: Computed<unknown> | null = null,
+): Signal2<T> {
+  if (firewall !== null) {
+    return {
+      value: v,
+      subs: null,
+      subsTail: null,
+      owner: firewall,
+    };
+  } else {
+    return {
+      value: v,
+      subs: null,
+      subsTail: null,
+    };
+  }
+}
+
+function recompute(el: Computed<unknown>) {
+  runDisposal(el);
+  const oldContext = context;
+  const oldWorkingHeight = contextHeight;
+  contextHeight = el.context ? el.context.height + 1 : 0;
+  context = el;
+  el.depsTail = null;
+  el.flags |= ReactiveFlags.RecomputingDeps;
+  let didNotError = true;
+  let value;
+  try {
+    value = el.fn();
+  } catch {
+    didNotError = false;
+  }
+  if (el.height < contextHeight) {
+    if (el.flags & ReactiveFlags.InHeap) {
+      deleteFromHeap(el);
+      el.height = contextHeight;
+      insertIntoHeap(el);
+    } else {
+      el.height = contextHeight;
+    }
+  }
+  el.flags &= ReactiveFlags.InHeap | ReactiveFlags.InFallbackHeap;
+  context = oldContext;
+  contextHeight = oldWorkingHeight;
+
+  const depsTail = el.depsTail as Link | null;
+  let toRemove = depsTail !== null ? depsTail.nextDep : el.deps;
+  if (toRemove !== null) {
+    do {
+      toRemove = unlinkSubs(toRemove);
+    } while (toRemove !== null);
+    if (depsTail !== null) {
+      depsTail.nextDep = null;
+    } else {
+      el.deps = null;
+    }
+  }
+
+  if (value !== el.value) {
+    if (didNotError) {
+      el.value = value;
+    }
+
+    for (let s = el.subs; s !== null; s = s.nextSub) {
+      insertIntoHeap(s.sub);
+    }
+  }
+}
+
+function updateIfNecessary(el: Computed<unknown>): void {
+  const linkStack: Link[] = [];
+  const computeStack: Computed<unknown>[] = [];
+  let link = el.deps ?? undefined;
+  let node: Signal2<unknown> | Computed<unknown> | undefined;
+  while (link) {
+    while (link) {
+      node = link.dep;
+      node = ("owner" in node ? node.owner : node) as Computed<unknown> | RawSignal<unknown>;
+      const next: Link | undefined = link.nextDep ?? undefined;
+      if ("fn" in node) {
+        if (
+          node.height < minDirty ||
+          node.flags & (ReactiveFlags.RecomputingDeps | ReactiveFlags.InFallbackHeap)
+        ) {
+          link = next;
           continue;
         }
-        let hasDirtyOrStaleSources = false;
-        if (node.sources != undefined) {
-            for (let source of node.sources) {
-                if (source.state == "Dirty" || source.state == "Stale") {
-                    hasDirtyOrStaleSources = true;
-                    break;
-                }
-            }
-            if (hasDirtyOrStaleSources) {
-                todoStack2.push(node);
-                for (let source of node.sources) {
-                    if (source.state == "Dirty" || source.state == "Stale") {
-                        todoStack1.push(source);
-                    }
-                }
-            }
+        if (node.flags & (ReactiveFlags.Dirty | ReactiveFlags.InHeap)) {
+          moveToFallbackHeap(node);
+          recompute(node);
+          link = next;
+          continue;
         }
-        if (!hasDirtyOrStaleSources) {
-            if (node.state == "Stale") {
-                node.state = "Clean";
-            } else if (node.state == "Dirty") {
-                node.state = "Clean";
-                if (node.update != undefined) {
-                    let changed = node.update();
-                    if (changed) {
-                      if (node.sinks != undefined) {
-                        for (let sink of node.sinks) {
-                          sink.state = "Dirty";
-                          resetToStaleSet.add(sink);
-                          todoStack1.push(sink);
-                        }
-                      }
-                    }
-                }
-            }
-        }
-    }
-    for (let node of resetToStaleSet) {
-        node.state = "Stale";
-    }
-    resetToStaleSet.clear();
-}
+        moveToFallbackHeap(node);
+        computeStack.push(node);
 
-function useOwner<A>(innerOwner: ADNode, k: () => A): A {
-  let oldOwner = owner;
-  owner = innerOwner;
-  let result: A;
-  try {
-    result = k();
-  } finally {
-    owner = oldOwner;
-  }
-  return result;
-}
-
-function useObserver<A>(innerObserver: ADNode | undefined, k: () => A): A {
-  let oldObserver = observer;
-  observer = innerObserver;
-  let result: A;
-  try {
-    result = k();
-  } finally {
-    observer = oldObserver;
-  }
-  return result;
-}
-
-function useOwnerAndObserver<A>(innerOwnerAndObserver: ADNode | undefined, k: () => A): A {
-  let oldOwner = owner;
-  let oldObserver = observer;
-  let result: A;
-  owner = innerOwnerAndObserver;
-  observer = innerOwnerAndObserver;
-  try {
-    result = k();
-  } finally {
-    owner = oldOwner;
-    observer = oldObserver;
-  }
-  return result;
-}
-
-function dirtyTheSinks(node: ADNode) {
-  if (node.sinks == undefined) {
-    return;
-  }
-  for (let sink of node.sinks) {
-    if (sink.state != "Dirty") {
-      sink.state = "Dirty";
-      // Always eagar
-      cursorSet.add(sink);
-      //
-      resetToStaleSet.add(node);
-    }
-  }
-}
-
-function resolveNode(node: ADNode) {
-  if (node.state == "Clean") {
-    return;
-  }
-  let dirtyOrStaleSources: ADNode[] = [];
-  if (node.sources != undefined) {
-    for (let source of node.sources) {
-      if (source.state == "Dirty" || source.state == "Stale") {
-        dirtyOrStaleSources.push(source);
-      }
-    }
-  }
-  for (let node of dirtyOrStaleSources) {
-    resolveNode(node);
-  }
-  if (node.state == "Stale") {
-    node.state = "Clean";
-  } else if (node.state == "Dirty") {
-    let changed = false;
-    if (node.update != undefined) {
-      cleanupNode(node);
-      changed = node.update();
-    }
-    node.state = "Clean";
-    if (changed) {
-      dirtyTheSinks(node);
-    }
-  }
-}
-
-function cleanupNode(node: ADNode) {
-  let stack = [ node, ];
-  while (true) {
-    let atNode = stack.pop();
-    if (atNode == undefined) {
-      break;
-    }
-    if (atNode.sources != undefined) {
-      for (let source of atNode.sources) {
-        if (source.sinks != undefined) {
-          source.sinks.delete(atNode);
+        if (node.deps) {
+          link = node.deps;
+          if (next) {
+            linkStack.push(next);
+          }
+          continue;
         }
       }
-      atNode.sources.clear();
+      link = next;
     }
-    if (atNode.cleanups != undefined) {
-      for (let cleanup of atNode.cleanups) {
-        cleanup();
+    link = linkStack.pop();
+    for (let i = computeStack.length - 1; i >= 0; i--) {
+      const node = computeStack[i]!;
+      if (node.flags & (ReactiveFlags.Dirty | ReactiveFlags.InHeap)) {
+        deleteFromHeap(el);
+        recompute(node);
+      } else {
+        el.flags &= ReactiveFlags.InHeap | ReactiveFlags.InFallbackHeap;
       }
-      atNode.cleanups.splice(0, atNode.cleanups.length);
     }
-    if (atNode.children != undefined) {
-      stack.push(...atNode.children);
-      atNode.children.clear();
-    }
+    computeStack.length = 0;
   }
-}
-
-export function batch<A>(k: () => A): A {
-  return transaction(k);
-}
-
-export function createMemo<A>(
-  k: () => A,
-  options?: {
-    equals: (a: A, b: A) => boolean,
-  },
-): Accessor<A> {
-  if (owner == undefined) {
-    throw new Error("Creating a memo outside owner is not supported.");
-  }
-  let equals = options?.equals ?? ((a, b) => a === b);
-  let value: A | undefined = undefined;
-  let children = new Set<ADNode>();
-  let cleanups: (() => void)[] = [];
-  let sources = new Set<ADNode>();
-  let sinks = new Set<ADNode>();
-  let node: ADNode = {
-    state: "Dirty",
-    children,
-    cleanups,
-    sources,
-    sinks,
-    update: () => {
-      let oldValue = value;
-      value = useOwnerAndObserver(node, k);
-      return !(oldValue == undefined ?
-        true :
-        equals(value, oldValue));
-    },
-  };
-  owner.children?.add(node);
-  transaction(() => {
-    cursorSet.add(node);
-    resetToStaleSet.add(node);
-  });
-  return () => {
-    if (observer != undefined) {
-      observer.sources?.add(node);
-      sinks.add(observer);
-    }
-    resolveNode(node);
-    return value!;
-  };
-}
-
-export function createEffect(k: () => void) {
-  if (owner == undefined) {
-    throw new Error("Creating an effect outside owner is not supported.");
-  }
-  let children = new Set<ADNode>();
-  let cleanups: (() => void)[] = [];
-  let sources = new Set<ADNode>();
-  let sinks = new Set<ADNode>();
-  let node: ADNode = {
-    state: "Dirty",
-    children,
-    cleanups,
-    sources,
-    sinks,
-    update: () => {
-      useOwnerAndObserver(node, k);
-      return false;
-    },
-  };
-  owner.children?.add(node);
-  transaction(() => {
-    cursorSet.add(node);
-    resetToStaleSet.add(node);
-  });
-}
-
-export function onCleanup(k: () => void) {
-  if (owner == undefined) {
-    throw new Error("Creating a cleanup outside owner is not supported.");
-  }
-  owner.cleanups?.push(k);
-}
-
-export function untrack<A>(k: () => A): A {
-  return useObserver(undefined, k);
-}
-
-export function createSignal<A>(): Signal<A | undefined>;
-export function createSignal<A>(a: A): Signal<A>;
-export function createSignal<A>(a?: A): Signal<A> | Signal<A | undefined> {
-  if (a == undefined) {
-    return createSignal2<A | undefined>(undefined);
+  if (el.flags & (ReactiveFlags.Dirty | ReactiveFlags.InHeap)) {
+    deleteFromHeap(el);
+    recompute(el);
   } else {
-    return createSignal2<A>(a);
+    el.flags &= ReactiveFlags.InHeap | ReactiveFlags.InFallbackHeap;
   }
 }
 
-function createSignal2<A>(a: A): Signal<A> {
-  let value = a;
-  let sinks = new Set<ADNode>();
-  let node: ADNode = {
-    state: "Clean",
-    sinks,
-  };
-  return [
-    () => {
-      if (observer != undefined) {
-        observer.sources?.add(node);
-        sinks.add(observer);
-      }
-      return value;
-    },
-    (x) => {
-      transaction(() => {
-        value = x;
-        dirtyTheSinks(node);
+// https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L100
+function unlinkSubs(link: Link): Link | null {
+  const dep = link.dep;
+  const nextDep = link.nextDep;
+  const nextSub = link.nextSub;
+  const prevSub = link.prevSub;
+  if (nextSub !== null) {
+    nextSub.prevSub = prevSub;
+  } else {
+    dep.subsTail = prevSub;
+  }
+  if (prevSub !== null) {
+    prevSub.nextSub = nextSub;
+  } else {
+    dep.subs = nextSub;
+    if (nextSub === null && "fn" in dep) {
+      unwatched(dep);
+    }
+  }
+  return nextDep;
+}
+
+function unwatched(el: Computed<unknown>) {
+  deleteFromHeap(el);
+  let dep = el.deps;
+  while (dep !== null) {
+    dep = unlinkSubs(dep);
+  }
+  el.deps = null;
+  runDisposal(el);
+}
+
+// https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L52
+function link(
+  dep: Signal2<unknown> | Computed<unknown>,
+  sub: Computed<unknown>,
+) {
+  const prevDep = sub.depsTail;
+  if (prevDep !== null && prevDep.dep === dep) {
+    return;
+  }
+  let nextDep: Link | null = null;
+  const isRecomputing = sub.flags & ReactiveFlags.RecomputingDeps;
+  if (isRecomputing) {
+    nextDep = prevDep !== null ? prevDep.nextDep : sub.deps;
+    if (nextDep !== null && nextDep.dep === dep) {
+      sub.depsTail = nextDep;
+      return;
+    }
+  }
+
+  const prevSub = dep.subsTail;
+  if (
+    prevSub !== null &&
+    prevSub.sub === sub &&
+    (!isRecomputing || isValidLink(prevSub, sub))
+  ) {
+    return;
+  }
+  const newLink =
+    (sub.depsTail =
+      dep.subsTail =
+      {
+        dep,
+        sub,
+        nextDep,
+        prevSub,
+        nextSub: null,
       });
-      return x;
-    },
-  ];
+  if (prevDep !== null) {
+    prevDep.nextDep = newLink;
+  } else {
+    sub.deps = newLink;
+  }
+  if (prevSub !== null) {
+    prevSub.nextSub = newLink;
+  } else {
+    dep.subs = newLink;
+  }
+}
+
+// https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L284
+function isValidLink(checkLink: Link, sub: Computed<unknown>): boolean {
+  const depsTail = sub.depsTail;
+  if (depsTail !== null) {
+    let link = sub.deps!;
+    do {
+      if (link === checkLink) {
+        return true;
+      }
+      if (link === depsTail) {
+        break;
+      }
+      link = link.nextDep!;
+    } while (link !== null);
+  }
+  return false;
+}
+
+export function read<T>(el: Signal2<T> | Computed<T>): T {
+  if (context) {
+    link(el, context);
+  }
+  const owner = "owner" in el ? el.owner : el;
+  if ("fn" in owner) {
+    if (owner.flags & (ReactiveFlags.Dirty | ReactiveFlags.InHeap)) {
+      deleteFromHeap(owner);
+      recompute(owner);
+    } else if (
+      heapSize > 0 &&
+      owner.height >= minDirty
+    ) {
+      updateIfNecessary(owner);
+    }
+    if (context) {
+      const height = owner.height;
+      if (height >= contextHeight) {
+        contextHeight = height + 1;
+      }
+    }
+  }
+  return el.value;
+}
+
+// Is the fallback heap actually worth it?
+// The alternative is that unstable reads simply walk their source tree
+// stopping at dirty or heaped nodes
+function clearFallbackHeap() {
+  while (fallbackHeap !== undefined) {
+    fallbackHeap.flags ^= ReactiveFlags.InFallbackHeap;
+    const prevFallbackHeap = fallbackHeap;
+    fallbackHeap = fallbackHeap.nextHeap;
+    prevFallbackHeap.prevHeap = prevFallbackHeap;
+    prevFallbackHeap.nextHeap = undefined;
+  }
+}
+
+function setSignal(el: Signal2<unknown>, v: unknown) {
+  if (el.value === v) return;
+  el.value = v;
+  for (let link = el.subs; link !== null; link = link.nextSub) {
+    insertIntoHeap(link.sub);
+  }
+  clearFallbackHeap();
+}
+
+function stabilize() {
+  if (!heapSize) {
+    return;
+  }
+  for (minDirty = 0; minDirty <= maxDirty; minDirty++) {
+    let el = dirtyHeap[minDirty];
+    while (el !== undefined) {
+      deleteFromHeap(el);
+      recompute(el);
+      el = dirtyHeap[minDirty];
+    }
+  }
+  clearFallbackHeap();
+  minDirty = Infinity;
+  maxDirty = nextMaxDirty;
+  nextMaxDirty = 0;
+}
+
+export function onCleanup(fn: Disposable): Disposable {
+  if (!context) return fn;
+
+  const node = context;
+
+  if (!node.disposal) {
+    node.disposal = fn;
+  } else if (Array.isArray(node.disposal)) {
+    node.disposal.push(fn);
+  } else {
+    node.disposal = [node.disposal, fn];
+  }
+  return fn;
+}
+
+function runDisposal(node: Computed<unknown>): void {
+  if (!node.disposal) return;
+
+  if (Array.isArray(node.disposal)) {
+    for (let i = 0; i < node.disposal.length; i++) {
+      const callable = node.disposal[i];
+      callable!.call(callable);
+    }
+  } else {
+    node.disposal.call(node.disposal);
+  }
+
+  node.disposal = null;
 }
 
 export function createRoot<A>(k: (dispose: () => void) => A): A {
