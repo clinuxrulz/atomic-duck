@@ -8,14 +8,35 @@ export type Component<P={}> = (props: P) => JSX.Element;
 
 export { mapArray } from "./array.ts";
 
-type ADNodeState = "Clean" | "Stale" | "Dirty";
+export interface Cleanup {
+  (): void;
+}
+
+const enum ADNodeFlags {
+  None = 0,
+  Dirty = 1 << 0,
+  RecomputingDeps = 1 << 1,
+  InHeap = 1 << 2,
+  InFallbackHeap = 1 << 3,
+};
+
+export interface Link {
+  dep: ADNode;
+  sub: ADNode;
+  nextDep: Link | undefined;
+  prevSub: Link | undefined;
+  nextSub: Link | undefined;
+};
 
 interface ADNode {
-  state: ADNodeState;
-  readonly children?: Set<ADNode>;
-  readonly cleanups?: (() => void)[];
-  readonly sources?: Set<ADNode>;
-  readonly sinks?: Set<ADNode>;
+  deps: Link | undefined;
+  depsTail: Link | undefined;
+  flags: ADNodeFlags;
+  context: ADNode;
+  height: number;
+  nextHeap: ADNode | undefined;
+  prevHeap: ADNode;
+  cleanup: Cleanup | Cleanup[] | undefined;
   /**
    * The update function.
    * Returns true if the node changed in value.
@@ -23,13 +44,60 @@ interface ADNode {
   readonly update?: () => boolean;
 }
 
-let owner: ADNode | undefined = undefined;
-let observer: ADNode | undefined = undefined;
-let cursorSet = new Set<ADNode>();
-let transactionDepth = 0;
-let todoStack1: ADNode[] = [];
-let todoStack2: ADNode[] = [];
-let resetToStaleSet = new Set<ADNode>();
+let context: ADNode | undefined = undefined;
+
+let minDirty = Number.POSITIVE_INFINITY;
+let maxDirty = 0;
+let nextMaxDirty = 0;
+let contextHeight = 0;
+let heapSize = 0;
+let fallbackHeap: ADNode | undefined = undefined;
+const dirtyHeap: (ADNode | undefined)[] = new Array(2000);
+function increaseHeapSize(n: number) {
+  if (n > dirtyHeap.length) {
+    dirtyHeap.length = n;
+  }
+}
+
+function insertIntoHeapMap(n: ADNode) {
+  let flags = n.flags;
+  if (flags & (ADNodeFlags.InHeap | ADNodeFlags.RecomputingDeps)) return;
+  if (flags & ADNodeFlags.InFallbackHeap) {
+    // flags ^= ADNodeFlags.InFallbackHeap;
+    if (n.prevHeap === n) {
+      fallbackHeap = undefined;
+    } else {
+      const next = n.nextHeap;
+      const dhh = fallbackHeap!;
+      const end = next ?? dhh;
+      if (n === dhh) {
+        fallbackHeap = next;
+      } else {
+        n.prevHeap.nextHeap = next;
+      }
+      end.prevHeap = n.prevHeap;
+    }
+    n.prevHeap = n;
+    n.nextHeap = undefined;
+  }
+  heapSize++;
+  n.flags = flags | ADNodeFlags.InHeap;
+  const height = n.height;
+  const heapAtHeight = dirtyHeap[height];
+  if (heapAtHeight === undefined) {
+    dirtyHeap[height] = n;
+  } else {
+    const tail = heapAtHeight.prevHeap;
+    tail.nextHeap = n;
+    n.prevHeap = tail;
+    heapAtHeight.prevHeap = n;
+  }
+  if (height > maxDirty) {
+    maxDirty = height;
+  } else if (height <= minDirty) {
+    nextMaxDirty = height;
+  }
+}
 
 function transaction<A>(k: () => A): A {
   ++transactionDepth;
