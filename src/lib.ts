@@ -494,6 +494,21 @@ function runDisposal(node: Computed<unknown>): void {
   node.disposal = null;
 }
 
+let transactionDepth = 0;
+export function batch<A>(k: () => A): A {
+  ++transactionDepth;
+  let result: A;
+  try {
+    result = k();
+  } finally {
+    --transactionDepth;
+  }
+  if (transactionDepth == 0) {
+    stabilize();
+  }
+  return result;
+}
+
 export function createRoot<A>(k: (dispose: () => void) => A): A {
   // ???
   return k(() => {});
@@ -506,7 +521,9 @@ export function createSignal<A>(a?: A): Signal<A | undefined> {
   return [
     () => read(s),
     (x: A | undefined) => {
-      setSignal(s, x);
+      batch(() => {
+        setSignal(s, x);
+      });
       return x;
     }
   ];
